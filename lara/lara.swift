@@ -21,6 +21,10 @@ func iosVersionBelow(_ version: String) -> Bool {
 
 let g_isunsupported: Bool = isunsupported()
 var weonadebugbuild_pjbweouttahereexclamationmark: Bool = false
+// True when running the iOS < 26.2 business-only mode (arm64 build): only the
+// apptrace dylibs are loaded; kernel/tweak features are inert (their framework
+// is weak-linked and absent in the arm64 process), so their UI is hidden.
+var g_apptraceBusinessMode: Bool = false
 
 @main
 struct lara: App {
@@ -60,11 +64,13 @@ struct lara: App {
                     .tag(taboptions.applying)
                 
                 // this has gotta fucking go
-                TweaksView(mgr: mgr)
-                    .tabItem {
-                        Image(systemName: "ant.fill")
-                    }
-                    .tag(taboptions.tweaks)
+                if !g_apptraceBusinessMode {
+                    TweaksView(mgr: mgr)
+                        .tabItem {
+                            Image(systemName: "ant.fill")
+                        }
+                        .tag(taboptions.tweaks)
+                }
                 
                 
                 // i'm gonna strangle you root (the weight of your actions will crush you)
@@ -159,12 +165,13 @@ struct lara: App {
     // @rpath (with @executable_path as fallback). Nothing else is touched —
     // no kernel r/w, no exploit, no pipeline.
     private func loadAppTraceBusinessLibraries() {
-        globallogger.log("(apptrace) build-marker apptrace-v2 (dual-arch main; iOS<26.2 runs arm64 + apptrace libs)")
+        globallogger.log("(apptrace) build-marker apptrace-v3 (arm64 build; iOS<26.2 loads apptrace business libs only)")
         globallogger.log("(apptrace) iOS \(UIDevice.current.systemVersion) < 26.2 — business-only mode")
-        // The main binary is universal (arm64 + arm64e) with the arm64e slice's
-        // min OS raised to 26.2, so on iOS < 26.2 dyld runs the arm64 slice.
-        // libuiopsersvc is arm64e and weak-linked -> not loaded here, and the
-        // exploit/tweak entry points are inert in this mode by design.
+        // This is the arm64 build: the process runs as arm64, so the arm64
+        // apptrace dylibs load natively. libuiopsersvc (arm64e) is weak-linked
+        // and absent — kernel/tweak entry points are inert and their UI is
+        // hidden (g_apptraceBusinessMode) so nothing can crash by tapping them.
+        g_apptraceBusinessMode = true
         let names: [String] = [
             "libapptracecore.framework/libapptracecore",
             "apptrace.framework/apptrace",

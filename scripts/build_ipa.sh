@@ -1,10 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
+# Usage: build_ipa.sh <arch> <output-name>
+#   ./scripts/build_ipa.sh arm64e lara        -> build/lara.ipa      (pipeline, iOS >= 26.2)
+#   ./scripts/build_ipa.sh arm64  lara-arm64  -> build/lara-arm64.ipa (business-only, iOS < 26.2)
+ARCHS="${1:-arm64e}"
+OUTNAME="${2:-lara}"
+
 rm -rf build/
 mkdir -p build
 
-echo "Build Started!"
+echo "Build Started (arch=$ARCHS, output=$OUTNAME.ipa)!"
 echo
 
 xcodebuild \
@@ -12,8 +18,7 @@ xcodebuild \
   -scheme lara \
   -configuration Debug \
   -sdk iphoneos \
-  -arch arm64 \
-  -arch arm64e \
+  -arch "$ARCHS" \
   ONLY_ACTIVE_ARCH=NO \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
@@ -33,21 +38,14 @@ cp -R "$APP_PATH" "$PWD/build/Payload/"
 
 plutil -replace UIFileSharingEnabled -bool YES "$PWD/build/Payload/lara.app/Info.plist"
 
-# Dual-arch slice steering: the app is built universal (arm64 + arm64e). Raise
-# the arm64e slice's min OS to 26.2 so dyld picks the arm64 slice on iOS < 26.2
-# (arm64 process -> loads the arm64 apptrace business dylibs) and the arm64e
-# slice on iOS >= 26.2 (arm64e process -> full pipeline). libuiopsersvc is
-# weak-linked so the arm64 process launches without it.
-python3 scripts/patch_minos.py "$PWD/build/Payload/lara.app/lara" 26.2.0
-
 if ! command -v ldid >/dev/null 2>&1; then
   echo "ERROR: ldid not installed. Install with: brew install ldid" >&2
   exit 1
 fi
 ldid -SConfig/lara.entitlements "$PWD/build/Payload/lara.app/lara"
-(cd "$PWD/build" && /usr/bin/zip -qry lara.ipa Payload)
+(cd "$PWD/build" && /usr/bin/zip -qry "$OUTNAME.ipa" Payload)
 
 echo
 echo "build successful!"
-echo "ipa at: build/lara.ipa"
+echo "ipa at: build/$OUTNAME.ipa"
 exit 0
