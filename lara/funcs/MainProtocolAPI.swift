@@ -70,8 +70,8 @@ struct DeviceConfig {
 // MARK: - 主协议客户端
 
 enum MainAPI {
-    // TODO: 替换为真实服务器地址（文档未提供域名）
-    static let baseURL = "https://api.example.com"
+    // 主协议服务器地址
+    static let baseURL = "https://api.forgetcx.eu.cc"
 
     static var lastConfig: DeviceConfig?
 
