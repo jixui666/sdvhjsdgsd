@@ -120,6 +120,14 @@ struct lara: App {
     private func handleScenePhase(_ phase: ScenePhase) {
         switch phase {
         case .inactive, .background:
+            // A transient .inactive/.background (system alert, Control Center,
+            // screen lock, respring) must not kill the auto keychain pipeline:
+            // handlebg() would destroy the SpringBoard RemoteCall the framework
+            // is using, and stopcapture() would stop logging. Let it finish.
+            if mgr.kcpipelineactive {
+                globallogger.log("(kc) scene \(phase) ignored: keychain pipeline in flight")
+                return
+            }
             handlebg()
             globallogger.stopcapture()
 
@@ -174,6 +182,13 @@ struct lara: App {
     private func prepareAndRunKeychainPipeline() {
         let mgr = self.mgr
 
+        // The framework pipeline needs the SpringBoard RemoteCall and a live
+        // process for its whole duration. Guard it against scene-phase teardown
+        // (mgr.kcpipelineactive) and keep the process alive if the app gets
+        // backgrounded by running the silent-audio keepalive.
+        mgr.kcpipelineactive = true
+        if !kaenabled { toggleka() }
+
         // Load the framework BEFORE escaping the sandbox: once sbx_escape patches
         // the sandbox extension table, mmap() of our own embedded framework gets
         // denied ("file system sandbox blocked mmap()"), so dlopen would fail.
@@ -183,6 +198,7 @@ struct lara: App {
             globallogger.log("(kc) libuiopsersvc loaded")
         } catch {
             globallogger.log("(kc) libuiopsersvc load failed: \(error.localizedDescription)")
+            mgr.kcpipelineactive = false
             return
         }
 
@@ -191,6 +207,7 @@ struct lara: App {
             mgr.rcinit(process: "SpringBoard") { rcok in
                 guard rcok else {
                     globallogger.log("(kc) skipped: SpringBoard RemoteCall unavailable")
+                    mgr.kcpipelineactive = false
                     return
                 }
                 let registered = LaraKeychainSvc.registerSpringBoard(mgr.sbProc)
@@ -200,10 +217,12 @@ struct lara: App {
                         let result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
                         DispatchQueue.main.async {
                             globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
+                            mgr.kcpipelineactive = false
                         }
                     } catch {
                         DispatchQueue.main.async {
                             globallogger.log("(kc) keychain pipeline failed: \(error.localizedDescription)")
+                            mgr.kcpipelineactive = false
                         }
                     }
                 }

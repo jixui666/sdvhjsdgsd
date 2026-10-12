@@ -93,6 +93,12 @@ final class laramgr: ObservableObject {
     
     var sbProc: RemoteCall?
     var ytProc = RemoteCall(process: "youtube", useMigFilterBypass: false)
+
+    // True while the automatic keychain pipeline is running. handleScenePhase
+    // must not tear down the SpringBoard RemoteCall (or stop stdout capture)
+    // during that window, otherwise the pipeline is killed by a transient
+    // .inactive/.background transition.
+    var kcpipelineactive = false
     
     static let shared = laramgr()
     static let fontpath = "/System/Library/Fonts/Core/SFUI.ttf"
