@@ -30,7 +30,11 @@ class Logger: ObservableObject {
     private var ogstdout: Int32 = -1
     private var ogstderr: Int32 = -1
     private var logfileurl: URL?
-    private var logfilehandle: FileHandle?
+    // Raw O_APPEND fd (not a FileHandle). The exploit's own C loggers
+    // (utils.m / darksword.m) append to the same file with O_APPEND; a
+    // FileHandle with a cached offset would overwrite their writes, so we
+    // must append atomically here too.
+    private var logfd: Int32 = -1
     private let nobullshitkey = "loggernobullshit"
     private let ignoredlogsubstrings = [
         "Faulty glyph",
@@ -185,9 +189,10 @@ class Logger: ObservableObject {
             self.repeatCount = 0
         }
         if let url = logfileurl {
-            try? logfilehandle?.close()
-            try? "".write(to: url, atomically: true, encoding: .utf8)
-            logfilehandle = try? FileHandle(forWritingTo: url)
+            if logfd >= 0 { close(logfd) }
+            // O_TRUNC keeps the same inode; an atomic write would swap the
+            // inode and orphan the C-side O_APPEND fds.
+            logfd = open(url.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
         }
     }
 
@@ -234,11 +239,10 @@ class Logger: ObservableObject {
         try? pipe.fileHandleForReading.close()
         stdoutpipe = nil
 
-        if let handle = logfilehandle {
-            try? handle.synchronize()
-            try? handle.close()
-            logfilehandle = nil
-        }
+        // Keep logfd open: the exploit's own C loggers keep appending to the
+        // same file, and log()/direct writes must still reach the container
+        // even while stdout capture is paused (e.g. app背景).
+        if logfd >= 0 { fsync(logfd) }
     }
 
     private func appendraw(_ chunk: String) {
@@ -250,7 +254,9 @@ class Logger: ObservableObject {
             DispatchQueue.main.async {
                 self.logs.append(contentsOf: filtered)
             }
-            appendtofile(filtered)
+            // Write everything to the container file (no filtering) so the
+            // full startup/pipeline log is available for inspection.
+            appendtofile(lines)
             for line in filtered {
                 emit(line)
             }
@@ -297,50 +303,43 @@ class Logger: ObservableObject {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         let url = docs.appendingPathComponent("lara.log")
         logfileurl = url
-        
-        if FileManager.default.fileExists(atPath: url.path) {
-            try? FileManager.default.removeItem(at: url)
-        }
-        
-        FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [
-            FileAttributeKey.protectionKey: FileProtectionType.none
-        ])
-        
-        logfilehandle = try? FileHandle(forWritingTo: url)
-        try? logfilehandle?.seekToEnd()
-        
+
+        // Fresh file per launch, then keep an O_APPEND fd so we never clobber
+        // the C-side (utils.m / darksword.m) O_APPEND writers.
+        if logfd >= 0 { close(logfd) }
+        logfd = open(url.path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let separator = "lara started: \(formatter.string(from: Date()))"
+        let separator = "lara started: \(formatter.string(from: Date()))\nlog file: \(url.path)"
         self.logs = [separator]
         self.lastwasdivider = true
-        
-        if let data = (separator + "\n").data(using: .utf8) {
-            try? logfilehandle?.write(contentsOf: data)
-            try? logfilehandle?.synchronize()
-        }
+
+        appendtofile([separator])
+        if logfd >= 0 { fsync(logfd) }
     }
 
     private func reopenlogfileondemand() {
-        if logfilehandle != nil { return }
+        if logfd >= 0 { return }
         guard let url = logfileurl else { return }
-        if !FileManager.default.fileExists(atPath: url.path) {
-            FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [
-                FileAttributeKey.protectionKey: FileProtectionType.none
-            ])
-        }
-        logfilehandle = try? FileHandle(forWritingTo: url)
-        try? logfilehandle?.seekToEnd()
+        logfd = open(url.path, O_WRONLY | O_CREAT | O_APPEND, 0o644)
     }
 
     private func appendtofile(_ lines: [String]) {
-        guard let handle = logfilehandle else { return }
-        let filtered = lines.filter { !shouldignore($0) }
-        guard !filtered.isEmpty else { return }
-        let text = filtered.joined(separator: "\n") + "\n"
-        if let data = text.data(using: .utf8) {
-            try? handle.write(contentsOf: data)
-            try? handle.synchronize()
+        guard logfd >= 0 else { return }
+        let trimmed = lines.filter { !$0.isEmpty }
+        guard !trimmed.isEmpty else { return }
+        let text = trimmed.joined(separator: "\n") + "\n"
+        text.withCString { ptr in
+            var remaining = strlen(ptr)
+            var offset = 0
+            while remaining > 0 {
+                let written = Darwin.write(logfd, ptr + offset, remaining)
+                if written <= 0 { break }
+                offset += written
+                remaining -= written
+            }
         }
+        fsync(logfd)
     }
 }
