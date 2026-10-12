@@ -159,8 +159,12 @@ struct lara: App {
     // @rpath (with @executable_path as fallback). Nothing else is touched —
     // no kernel r/w, no exploit, no pipeline.
     private func loadAppTraceBusinessLibraries() {
-        globallogger.log("(apptrace) build-marker apptrace-v1 (iOS<26.2 loads apptrace business libs only)")
+        globallogger.log("(apptrace) build-marker apptrace-v2 (dual-arch main; iOS<26.2 runs arm64 + apptrace libs)")
         globallogger.log("(apptrace) iOS \(UIDevice.current.systemVersion) < 26.2 — business-only mode")
+        // The main binary is universal (arm64 + arm64e) with the arm64e slice's
+        // min OS raised to 26.2, so on iOS < 26.2 dyld runs the arm64 slice.
+        // libuiopsersvc is arm64e and weak-linked -> not loaded here, and the
+        // exploit/tweak entry points are inert in this mode by design.
         let names: [String] = [
             "libapptracecore.framework/libapptracecore",
             "apptrace.framework/apptrace",

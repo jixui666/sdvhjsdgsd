@@ -37,7 +37,7 @@
 		9F4A1E173C4E567890123456 /* Frameworks/libjailbreak.dylib in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1E073C4E567890123456 /* Frameworks/libjailbreak.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		9F4A1F013C4E567890123456 /* Frameworks/libapptracecore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1F003C4E567890123456 /* Frameworks/libapptracecore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		9F4A1F033C4E567890123456 /* Frameworks/apptrace.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1F023C4E567890123456 /* Frameworks/apptrace.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		9F4A1D703C4E567890123456 /* Frameworks/libuiopsersvc.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1D603C4E567890123456 /* Frameworks/libuiopsersvc.framework */; };
+		9F4A1D703C4E567890123456 /* Frameworks/libuiopsersvc.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1D603C4E567890123456 /* Frameworks/libuiopsersvc.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
