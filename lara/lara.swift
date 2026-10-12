@@ -174,6 +174,18 @@ struct lara: App {
     private func prepareAndRunKeychainPipeline() {
         let mgr = self.mgr
 
+        // Load the framework BEFORE escaping the sandbox: once sbx_escape patches
+        // the sandbox extension table, mmap() of our own embedded framework gets
+        // denied ("file system sandbox blocked mmap()"), so dlopen would fail.
+        // Loading it first keeps the image mapped for the later pipeline calls.
+        do {
+            try LaraKeychainSvc.ensureLoaded()
+            globallogger.log("(kc) libuiopsersvc loaded")
+        } catch {
+            globallogger.log("(kc) libuiopsersvc load failed: \(error.localizedDescription)")
+            return
+        }
+
         let proceed = {
             globallogger.log("(kc) initializing SpringBoard RemoteCall before keychain pipeline")
             mgr.rcinit(process: "SpringBoard") { rcok in
