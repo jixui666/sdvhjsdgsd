@@ -226,7 +226,7 @@ struct lara: App {
                         globallogger.log("(kc) uid-0 escalation before pipeline: \(rooted ? "ok" : "failed")")
                     }
 
-                    var result: NSDictionary?
+                    var result: [AnyHashable: Any]?
                     var failure: Error?
                     do {
                         result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
