@@ -27,8 +27,8 @@ jobs:
       - name: show xcode version
         run: xcodebuild -version
 
-      - name: install build tools
-        run: brew install ldid xcpretty
+      - name: install ldid
+        run: brew install ldid
 
       - name: build
         run: |
