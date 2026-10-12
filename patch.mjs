@@ -34,7 +34,7 @@ function encRet() { return 0xD65F03C0 >>> 0; }
 function encMovX(rd, rn) { return (0xAA000000 | (rn << 5) | rd) >>> 0; }
 
 const G = 0xA4300;         // guard entry (zero padding at end of __TEXT)
-const TRAMP = G + 0x48;    // trampoline: clear depth slot then jump to guard
+const TRAMP = G + 0x4C;    // trampoline: clear depth slot then jump to guard
 const SLOT = 0x800;        // 8-byte slot in __bss page 0x12f000
 const LIMIT_BYTES = 0x10000; // 512 frames * 0x50
 const PAGE = 0x12f000;
@@ -45,6 +45,9 @@ function emit(a, w) { words.push([a, w >>> 0]); }
 // --- guard at G ---
 // body must reproduce F's original prologue EXACTLY, including the PACIBSP hint
 // (0x67d10 was d503237f = pacibsp; skipping it breaks the autibsp+retab epilogue).
+// NOTE: str x31 in A64 STR/LDR space encodes XZR, NOT SP — the top path must
+// record the stack pointer via `mov x17, sp; str x17` or the depth slot stays 0
+// and the depth check never fires (this was the v1 bug).
 emit(G + 0x00, encAdrp(16, G & ~0xFFF, PAGE));            // adrp x16, PAGE
 emit(G + 0x04, encLdrX(17, 16, SLOT));                    // ldr x17, [x16, #SLOT]
 emit(G + 0x08, 0);                                        // cbz x17, top (fill)
@@ -53,26 +56,27 @@ emit(G + 0x10, encCmpImm(17, LIMIT_BYTES >> 12, 1));      // cmp x17, #LIMIT (0x
 emit(G + 0x14, 0);                                        // b.hi bail (fill)
 emit(G + 0x18, 0);                                        // b body (fill)
 emit(G + 0x1C, 0xD503201F);                               // nop
-emit(G + 0x20, encStrX(31, 16, SLOT));                    // top: str sp, [x16, #SLOT]
-emit(G + 0x24, 0xD503237F);                               // body: pacibsp (F original entry hint)
-emit(G + 0x28, encSubImm(31, 31, 0x50, 0));               // sub sp, sp, #0x50
-emit(G + 0x2C, encStpX(22, 21, 31, 0x20));                // stp x22, x21, [sp, #0x20]
-emit(G + 0x30, encStpX(20, 19, 31, 0x30));                // stp x20, x19, [sp, #0x30]
-emit(G + 0x34, encStpX(29, 30, 31, 0x40));                // stp x29, x30, [sp, #0x40]
-emit(G + 0x38, encAddImm(29, 31, 0x40, 0));               // add x29, sp, #0x40
-emit(G + 0x3C, encMovX(19, 0));                           // mov x19, x0
-emit(G + 0x40, 0);                                        // b 0x67d28 (fill)
-emit(G + 0x44, encRet());                                 // bail: ret
-// --- tramp at G+0x48 ---
+emit(G + 0x20, encAddImm(17, 31, 0, 0));                  // top: mov x17, sp
+emit(G + 0x24, encStrX(17, 16, SLOT));                    // str x17, [x16, #SLOT] (record real SP)
+emit(G + 0x28, 0xD503237F);                               // body: pacibsp (F original entry hint)
+emit(G + 0x2C, encSubImm(31, 31, 0x50, 0));               // sub sp, sp, #0x50
+emit(G + 0x30, encStpX(22, 21, 31, 0x20));                // stp x22, x21, [sp, #0x20]
+emit(G + 0x34, encStpX(20, 19, 31, 0x30));                // stp x20, x19, [sp, #0x30]
+emit(G + 0x38, encStpX(29, 30, 31, 0x40));                // stp x29, x30, [sp, #0x40]
+emit(G + 0x3C, encAddImm(29, 31, 0x40, 0));               // add x29, sp, #0x40
+emit(G + 0x40, encMovX(19, 0));                           // mov x19, x0
+emit(G + 0x44, 0);                                        // b 0x67d28 (fill)
+emit(G + 0x48, encRet());                                 // bail: ret
+// --- tramp at G+0x4C ---
 emit(TRAMP + 0x00, encAdrp(16, TRAMP & ~0xFFF, PAGE));    // adrp x16, PAGE
 emit(TRAMP + 0x04, encStrX(31, 16, SLOT));                // str xzr, [x16, #SLOT]
 emit(TRAMP + 0x08, 0);                                    // b guard (fill)
 
 // fill labels
 words.find(w => w[0] === G + 0x08)[1] = encCbzX(17, (G + 0x20) - (G + 0x08));
-words.find(w => w[0] === G + 0x14)[1] = encBCond(8, (G + 0x44) - (G + 0x14)); // b.hi bail
-words.find(w => w[0] === G + 0x18)[1] = encB((G + 0x24) - (G + 0x18));        // b body
-words.find(w => w[0] === G + 0x40)[1] = encB(0x67d28 - (G + 0x40));           // b 0x67d28
+words.find(w => w[0] === G + 0x14)[1] = encBCond(8, (G + 0x48) - (G + 0x14)); // b.hi bail
+words.find(w => w[0] === G + 0x18)[1] = encB((G + 0x28) - (G + 0x18));        // b body
+words.find(w => w[0] === G + 0x44)[1] = encB(0x67d28 - (G + 0x44));           // b 0x67d28
 words.find(w => w[0] === TRAMP + 0x08)[1] = encB(G - (TRAMP + 0x08));          // b guard
 
 // ---- patches to existing code ----
