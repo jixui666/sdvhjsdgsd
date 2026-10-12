@@ -147,13 +147,14 @@ struct lara: App {
                 return
             }
             DispatchQueue.global(qos: .userInitiated).async {
-                var err: NSError?
-                let result = LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0, error: &err)
-                DispatchQueue.main.async {
-                    if let result {
-                        globallogger.log("(kc) keychain pipeline done: \(result)")
-                    } else {
-                        globallogger.log("(kc) keychain pipeline failed: \(err?.localizedDescription ?? "unknown error")")
+                do {
+                    let result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
+                    DispatchQueue.main.async {
+                        globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        globallogger.log("(kc) keychain pipeline failed: \(error.localizedDescription)")
                     }
                 }
             }
