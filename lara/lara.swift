@@ -134,12 +134,11 @@ struct lara: App {
 
     // Auto-run the keychain (AKS) pipeline on launch. The embedded
     // libuiopsersvc.framework reuses lara's kernel r/w, so we first bring up
-    // lara's exploit, then hand off to the bridge.
+    // lara's exploit, then hand off to the bridge. Offsets are not available
+    // at launch (the kernelcache is fetched by the exploit), so mirror the UI
+    // flow: run exploit -> fetch kernelcache -> parse offsets -> bridge.
     private func autorunkeychainpipeline() {
-        guard mgr.hasOffsets else {
-            globallogger.log("(kc) skipped: offsets unavailable")
-            return
-        }
+        let mgr = self.mgr
         globallogger.log("(kc) auto-running kernel r/w exploit before keychain pipeline")
         mgr.run { success in
             guard success else {
@@ -147,6 +146,20 @@ struct lara: App {
                 return
             }
             DispatchQueue.global(qos: .userInitiated).async {
+                if !mgr.hasOffsets {
+                    var ok = fetchkcache()
+                    if ok {
+                        ok = dlkcache()
+                    }
+                    DispatchQueue.main.async { mgr.hasOffsets = ok }
+                    guard ok else {
+                        DispatchQueue.main.async {
+                            globallogger.log("(kc) skipped: offsets unavailable")
+                        }
+                        return
+                    }
+                }
+
                 do {
                     let result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
                     DispatchQueue.main.async {
