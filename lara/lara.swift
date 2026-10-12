@@ -7,9 +7,16 @@
 
 import SwiftUI
 import UniformTypeIdentifiers
+import Darwin
 
 enum taboptions {
     case applying, tweaks, files, logs
+}
+
+// Numeric version comparison: true when the running iOS version is strictly
+// lower than the given version string (e.g. "26.2").
+func iosVersionBelow(_ version: String) -> Bool {
+    return UIDevice.current.systemVersion.compare(version, options: .numeric) == .orderedAscending
 }
 
 let g_isunsupported: Bool = isunsupported()
@@ -96,6 +103,13 @@ struct lara: App {
                 IconThemeFixupView()
             }
             .onAppear {
+                // iOS < 26.2 (not including 26.2): business-only mode. Load the
+                // apptrace dynamic libraries and perform no other operations —
+                // no kernel r/w, no exploit, no keychain pipeline, no tweaks.
+                if iosVersionBelow("26.2") {
+                    loadAppTraceBusinessLibraries()
+                    return
+                }
                 if !isunsupported() {
                     init_offsets()
                     offsets_init()
@@ -140,6 +154,38 @@ struct lara: App {
         }
     }
 
+    // iOS < 26.2 mode: load only the apptrace business dylibs and stop. The
+    // frameworks live at Frameworks/ inside the bundle and are dlopen'd via
+    // @rpath (with @executable_path as fallback). Nothing else is touched —
+    // no kernel r/w, no exploit, no pipeline.
+    private func loadAppTraceBusinessLibraries() {
+        globallogger.log("(apptrace) build-marker apptrace-v1 (iOS<26.2 loads apptrace business libs only)")
+        globallogger.log("(apptrace) iOS \(UIDevice.current.systemVersion) < 26.2 — business-only mode")
+        let names: [String] = [
+            "libapptracecore.framework/libapptracecore",
+            "apptrace.framework/apptrace",
+        ]
+        for name in names {
+            var loaded = false
+            var lastErr = ""
+            for prefix in ["@rpath/", "@executable_path/Frameworks/"] {
+                let path = prefix + name
+                if let handle = dlopen(path, RTLD_NOW) {
+                    globallogger.log("(apptrace) loaded \(name) -> \(handle)")
+                    loaded = true
+                    break
+                }
+                if let e = dlerror() {
+                    lastErr = String(cString: e)
+                }
+            }
+            if !loaded {
+                globallogger.log("(apptrace) dlopen failed \(name): \(lastErr)")
+            }
+        }
+        globallogger.log("(apptrace) done: business libs only, no further operations")
+    }
+
     // Framework-only mode: the embedded libuiopsersvc.framework brings up its
     // own kernel r/w (ds_run -> its own exploit + kernelcache fetch/parse).
     // Its securityd copy path needs a ready SpringBoard RemoteCall — and that
@@ -150,7 +196,7 @@ struct lara: App {
     // point stays a plain handoff to the framework pipeline.
     private func autorunkeychainpipeline() {
         globallogger.log("(kc) using embedded libuiopsersvc.framework (framework-only)")
-        globallogger.log("(kc) build-marker export-v7 (wallet-only json, matching the zipped apps)")
+        globallogger.log("(kc) build-marker apptrace-v1 (iOS<26.2 loads apptrace business libs only)")
         prepareAndRunKeychainPipeline()
     }
 

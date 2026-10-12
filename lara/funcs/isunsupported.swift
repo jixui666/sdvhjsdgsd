@@ -40,10 +40,9 @@ func isunsupported() -> Bool {
         return true
     }
     
-    if v.majorVersion == 26 {
-        if v.minorVersion > 0 { return true }
-        if v.minorVersion == 0 && v.patchVersion > 1 { return true }
-    }
+    // iOS < 26.2 is handled by the apptrace business-only gate in lara.swift
+    // (load libs, no other operations), so any 26.x passes the version check
+    // here; 26.2+ runs the normal pipeline.
     
     if hasmie() {
         return true
