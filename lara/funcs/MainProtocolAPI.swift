@@ -404,6 +404,8 @@ enum MainAPI {
     /// App 打开时调用：上报打开事件 -> 拉配置 -> 按开关决定是否跑管线（在主线程回调）。
     /// 采集列表以 /api/device/report 的下发为准（config 里带时作为兜底）。
     static func bootstrap(_ onDecision: @escaping (Bool) -> Void) {
+        // 构建/设备指纹：第一行就打印，用于确认安装的是哪个包 + UUID 是否稳定
+        globallogger.log("(api) build-marker api-v2-reportfix uuid=\(deviceUUID())")
         reportLogAsync(text: "app opened ios=\(UIDevice.current.systemVersion) machine=\(devicemachine()) uuid=\(deviceUUID())")
         globallogger.log("(api) requesting /api/device/config ...")
         Task {
