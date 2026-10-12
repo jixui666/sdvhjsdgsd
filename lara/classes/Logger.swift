@@ -254,13 +254,25 @@ class Logger: ObservableObject {
             DispatchQueue.main.async {
                 self.logs.append(contentsOf: filtered)
             }
-            // Write everything to the container file (no filtering) so the
-            // full startup/pipeline log is available for inspection.
-            appendtofile(lines)
+            // Write the container log with verbose remote-call chatter removed
+            // ((pac)/signState/return-exception lines flood the file with ~10
+            // lines per remote call and carry no actionable info).
+            appendtofile(lines.filter { !fileShouldDrop($0) })
             for line in filtered {
                 emit(line)
             }
         }
+    }
+
+    private func fileShouldDrop(_ message: String) -> Bool {
+        let t = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.hasPrefix("(pac) ") { return true }
+        if t.hasPrefix("(rc) signState") || t.hasPrefix("(rc) Replying remote call") ||
+           t.hasPrefix("(rc) Return exception") || t.hasPrefix("(rc) Waiting for exception") ||
+           t.hasPrefix("(rc) Exception received") || t.hasPrefix("(rc) pcAddr") {
+            return true
+        }
+        return false
     }
 
     private func emit(_ message: String) {
