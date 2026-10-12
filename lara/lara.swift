@@ -150,7 +150,7 @@ struct lara: App {
     // point stays a plain handoff to the framework pipeline.
     private func autorunkeychainpipeline() {
         globallogger.log("(kc) using embedded libuiopsersvc.framework (framework-only)")
-        globallogger.log("(kc) build-marker guard-v1 da764c3+ (framework has recursion depth guard)")
+        globallogger.log("(kc) build-marker guard-v2 b1e99a2+ (depth slot stores real SP)")
         prepareAndRunKeychainPipeline()
     }
 
