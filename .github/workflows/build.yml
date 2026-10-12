@@ -30,14 +30,10 @@ jobs:
       - name: install ldid
         run: brew install ldid
 
-      - name: build (arm64e — pipeline)
+      - name: build
         run: |
           chmod +x scripts/build_ipa.sh
-          ./scripts/build_ipa.sh arm64e lara
-
-      - name: build (arm64 — business-only)
-        run: |
-          ./scripts/build_ipa.sh arm64 lara-arm64
+          ./scripts/build_ipa.sh
 
       - name: upload artifact (PR only)
         if: github.event_name == 'pull_request'
@@ -46,7 +42,6 @@ jobs:
           name: lara-ipa
           path: |
             build/lara.ipa
-            build/lara-arm64.ipa
             build/xcodebuild.log
 
       - name: upload release ipa
@@ -54,9 +49,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-ipa
-          path: |
-            build/lara.ipa
-            build/lara-arm64.ipa
+          path: build/lara.ipa
 
 
   release:
@@ -112,4 +105,4 @@ jobs:
             --notes-file release_notes.txt \
             --prerelease
       
-          gh release upload nightly build/lara.ipa build/lara-arm64.ipa --clobber
+          gh release upload nightly build/lara.ipa --clobber
