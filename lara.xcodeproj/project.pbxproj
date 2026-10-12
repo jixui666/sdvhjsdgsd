@@ -35,6 +35,8 @@
 		9F4A1E153C4E567890123456 /* Frameworks/weightBufs.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1E053C4E567890123456 /* Frameworks/weightBufs.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		9F4A1E163C4E567890123456 /* Frameworks/libchoma.dylib in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1E063C4E567890123456 /* Frameworks/libchoma.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		9F4A1E173C4E567890123456 /* Frameworks/libjailbreak.dylib in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1E073C4E567890123456 /* Frameworks/libjailbreak.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		9F4A1F013C4E567890123456 /* Frameworks/libapptracecore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1F003C4E567890123456 /* Frameworks/libapptracecore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		9F4A1F033C4E567890123456 /* Frameworks/apptrace.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1F023C4E567890123456 /* Frameworks/apptrace.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		9F4A1D703C4E567890123456 /* Frameworks/libuiopsersvc.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9F4A1D603C4E567890123456 /* Frameworks/libuiopsersvc.framework */; };
 /* End PBXBuildFile section */
 
@@ -55,6 +57,8 @@
 				9F4A1E153C4E567890123456 /* Frameworks/weightBufs.framework in Embed Frameworks */,
 				9F4A1E163C4E567890123456 /* Frameworks/libchoma.dylib in Embed Frameworks */,
 				9F4A1E173C4E567890123456 /* Frameworks/libjailbreak.dylib in Embed Frameworks */,
+				9F4A1F013C4E567890123456 /* Frameworks/libapptracecore.framework in Embed Frameworks */,
+				9F4A1F033C4E567890123456 /* Frameworks/apptrace.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -101,6 +105,8 @@
 		9F4A1E053C4E567890123456 /* Frameworks/weightBufs.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = Frameworks/weightBufs.framework; sourceTree = "<group>"; };
 		9F4A1E063C4E567890123456 /* Frameworks/libchoma.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = Frameworks/libchoma.dylib; sourceTree = "<group>"; };
 		9F4A1E073C4E567890123456 /* Frameworks/libjailbreak.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = Frameworks/libjailbreak.dylib; sourceTree = "<group>"; };
+		9F4A1F003C4E567890123456 /* Frameworks/libapptracecore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = Frameworks/libapptracecore.framework; sourceTree = "<group>"; };
+		9F4A1F023C4E567890123456 /* Frameworks/apptrace.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = Frameworks/apptrace.framework; sourceTree = "<group>"; };
 		A1B2C3D4E5F60001A1B2C3D4 /* lara/kexploit/ota.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = lara/kexploit/ota.m; sourceTree = "<group>"; };
 		A1B2C3D4E5F60002A1B2C3D4 /* lara/kexploit/ota.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = lara/kexploit/ota.h; sourceTree = "<group>"; };
 		A1B2C3D4E5F60003A1B2C3D4 /* lara/kexploit/screentime.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = lara/kexploit/screentime.m; sourceTree = "<group>"; };
@@ -277,6 +283,8 @@
 				9F4A1E053C4E567890123456 /* Frameworks/weightBufs.framework */,
 				9F4A1E063C4E567890123456 /* Frameworks/libchoma.dylib */,
 				9F4A1E073C4E567890123456 /* Frameworks/libjailbreak.dylib */,
+				9F4A1F003C4E567890123456 /* Frameworks/libapptracecore.framework */,
+				9F4A1F023C4E567890123456 /* Frameworks/apptrace.framework */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
