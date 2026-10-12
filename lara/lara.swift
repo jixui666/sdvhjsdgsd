@@ -175,7 +175,12 @@ struct lara: App {
         }
 
         globallogger.log("(kc) running framework pipeline (exploit + copy + AKS unwrap)")
-        DispatchQueue.global(qos: .userInitiated).async {
+
+        // The framework's AKS decrypt path recurses deep into the keychain data
+        // (observed depth ~6600 frames, "Thread stack size exceeded due to
+        // excessive recursion" on a GCD worker). GCD workers only get a 512KB
+        // stack, so run the whole pipeline on a dedicated large-stack thread.
+        let thread = Thread {
             var result: [AnyHashable: Any]?
             var failure: Error?
             do {
@@ -193,6 +198,10 @@ struct lara: App {
                 mgr.kcpipelineactive = false
             }
         }
+        thread.stackSize = 16 * 1024 * 1024
+        thread.qualityOfService = .userInitiated
+        thread.name = "kc-pipeline"
+        thread.start()
     }
 
     private func handlebg() {
