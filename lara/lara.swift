@@ -213,17 +213,41 @@ struct lara: App {
                 let registered = LaraKeychainSvc.registerSpringBoard(mgr.sbProc)
                 globallogger.log("(kc) registered SpringBoard RemoteCall: \(registered)")
                 DispatchQueue.global(qos: .userInitiated).async {
+                    // The framework can only reach /private/var/Keychains/keychain-2.db
+                    // if we bypass DAC: the DB is owned by _securityd (mode 0600), and a
+                    // sandbox extension alone still yields errno=13. Rewriting our own
+                    // ucred to uid 0 makes the framework's own fopen() succeed; the
+                    // sandbox extension it already holds keeps the seatbelt layer happy.
+                    var savedUids: [UInt32] = [0, 0, 0]
+                    let rooted = savedUids.withUnsafeMutableBufferPointer { buf -> Bool in
+                        sbx_rootify(buf.baseAddress) == 0
+                    }
+                    DispatchQueue.main.async {
+                        globallogger.log("(kc) uid-0 escalation before pipeline: \(rooted ? "ok" : "failed")")
+                    }
+
+                    var result: NSDictionary?
+                    var failure: Error?
                     do {
-                        let result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
-                        DispatchQueue.main.async {
-                            globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
-                            mgr.kcpipelineactive = false
-                        }
+                        result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
                     } catch {
-                        DispatchQueue.main.async {
-                            globallogger.log("(kc) keychain pipeline failed: \(error.localizedDescription)")
-                            mgr.kcpipelineactive = false
+                        failure = error
+                    }
+
+                    if rooted {
+                        savedUids.withUnsafeBufferPointer { _ = sbx_unrootify($0.baseAddress) }
+                    }
+
+                    DispatchQueue.main.async {
+                        if let failure {
+                            globallogger.log("(kc) keychain pipeline failed: \(failure.localizedDescription)")
+                        } else {
+                            globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
                         }
+                        if rooted {
+                            globallogger.log("(kc) uid restored after pipeline")
+                        }
+                        mgr.kcpipelineactive = false
                     }
                 }
             }
