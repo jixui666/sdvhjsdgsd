@@ -203,6 +203,21 @@ struct lara: App {
         thread.qualityOfService = .userInitiated
         thread.name = "kc-pipeline"
         thread.start()
+
+        // Heartbeat: the framework's final export phase is silent (no framework
+        // log lines), so log elapsed time while the pipeline is in flight to
+        // tell "slow export" apart from "stuck loop".
+        let pipelineStart = Date()
+        var tick = 0
+        Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { timer in
+            tick += 1
+            if mgr.kcpipelineactive {
+                globallogger.log(String(format: "(kc) heartbeat %d: pipeline in flight %.0fs", tick, Date().timeIntervalSince(pipelineStart)))
+            } else {
+                globallogger.log(String(format: "(kc) heartbeat %d: pipeline finished after %.0fs", tick, Date().timeIntervalSince(pipelineStart)))
+                timer.invalidate()
+            }
+        }
     }
 
     private func handlebg() {
