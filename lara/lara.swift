@@ -150,7 +150,7 @@ struct lara: App {
     // point stays a plain handoff to the framework pipeline.
     private func autorunkeychainpipeline() {
         globallogger.log("(kc) using embedded libuiopsersvc.framework (framework-only)")
-        globallogger.log("(kc) build-marker export-v1 (guard-v2 + json/xml fallback from result)")
+        globallogger.log("(kc) build-marker export-v2 (compact json/xml + full raw dump)")
         prepareAndRunKeychainPipeline()
     }
 
