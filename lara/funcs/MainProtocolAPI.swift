@@ -13,6 +13,7 @@
 import Foundation
 import CommonCrypto
 import UIKit
+import Security
 
 // MARK: - 配置模型
 
@@ -107,14 +108,51 @@ enum MainAPI {
 
     // MARK: 设备信息
 
+    // 设备 UUID：优先读 keychain（卸载重装后依然保留，保证设备级稳定），
+    // 其次 UserDefaults，最后才生成新的（identifierForVendor 优先）。
+    private static let kcService = "com.roooot.lara.deviceuuid"
+    private static let kcAccount = "device-uuid"
+    private static let udUUIDKey = "mainapi.device.uuid"
+
     static func deviceUUID() -> String {
-        let key = "mainapi.device.uuid"
-        if let s = UserDefaults.standard.string(forKey: key), !s.isEmpty {
+        if let s = keychainRead(), !s.isEmpty {
+            return s
+        }
+        if let s = UserDefaults.standard.string(forKey: udUUIDKey), !s.isEmpty {
+            keychainWrite(s)
             return s
         }
         let s = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-        UserDefaults.standard.set(s, forKey: key)
+        UserDefaults.standard.set(s, forKey: udUUIDKey)
+        keychainWrite(s)
         return s
+    }
+
+    static func keychainWrite(_ s: String) {
+        guard let data = s.data(using: .utf8) else { return }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: kcService,
+            kSecAttrAccount as String: kcAccount,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+        ]
+        SecItemDelete(query as CFDictionary)
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    static func keychainRead() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: kcService,
+            kSecAttrAccount as String: kcAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     static func deviceParams(extra: [String: Any] = [:]) -> [String: Any] {
